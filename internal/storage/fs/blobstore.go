@@ -80,13 +80,38 @@ func (fs *FileSystemStorage) Export(uid, docid string) (r io.ReadCloser, err err
 	}
 	ls := fs.BlobStorage(uid)
 
-	archive, err := models.ArchiveFromHashDoc(doc, ls)
+	var hasPDF bool = false
+	var fileHash string
+	for _, f := range doc.Files {
+		if strings.Contains(f.EntryName, ".rm") {
+			fileHash = f.Hash
+		}
+		if strings.Contains(f.EntryName, ".pdf") {
+			hasPDF = true
+			break
+		}
+	}
+
+	var archive *exporter.MyArchive
+	var readr io.ReadCloser
+	if hasPDF {
+		archive, err = models.ArchiveFromHashDoc(doc, ls)
+	} else {
+		readr, err = ls.GetReader(fileHash)
+	}
+
 	if err != nil {
 		return nil, err
 	}
+
 	reader, writer := io.Pipe()
 	go func() {
-		err = exporter.RenderRmapi(archive, writer)
+		var err error
+		if hasPDF {
+			err = exporter.RenderRmapi(archive, writer)
+		} else {
+			err = exporter.RenderCustom(readr, writer)
+		}
 		if err != nil {
 			log.Error(err)
 			writer.Close()
